@@ -32,7 +32,7 @@ While maintaining the same level of rigorous, reproducible evaluation as Android
 - 🎯 **Broad Real-World Coverage**: 201 carefully curated tasks across 20 mobile applications
 - 🔄 **Long-Horizon Tasks**: Multi-step reasoning and cross-app workflows
 - 👥 **Agent-User Interaction**: Novel tasks requiring dynamic human-agent collaboration
-- 🔧 **MCP-Augmented Tasks**: Support for Model Context Protocol (MCP) to evaluate hybrid tool-use capabilities
+- 🔧 **MCP-Augmented Tasks**: Support Model Context Protocol (MCP) to evaluate hybrid tool usage
 
 <p align="center">
   <img src="./assets/compare_to_aw.jpg" alt="Comparison to AndroidWorld" width="800">
