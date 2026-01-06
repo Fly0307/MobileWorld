@@ -27,7 +27,8 @@
 
 </p>
 
-**MobileWorld** is a challenging mobile-use benchmark with the same level of **rigorous, verifiable evaluation** as AndroidWorld, while introducing four additional features to better capture real-world mobile agent behavior.
+
+While maintaining the same level of rigorous, reproducible evaluation as AndroidWorld, **MobileWorld** offers a more challenging online mobile-use benchmark by introducing four additional features that better capture real-world agent behavior.
 
 - 🎯 **Broad Real-World Coverage**: 201 carefully curated tasks across 20 mobile applications
 - 🔄 **Long-Horizon Tasks**: Multi-step reasoning and cross-app workflows
@@ -36,6 +37,8 @@
 
 <p align="center">
   <img src="./assets/compare_to_aw.jpg" alt="Comparison to AndroidWorld" width="800">
+  <br>
+  <em>Difficulty comparison between MobileWorld and AndroidWorld</em>
 </p>
 
 ## 📢 Updates
@@ -55,9 +58,6 @@
 - [Contact](#-contact)
 - [Acknowledgements](#-acknowledgements)
 - [Citation](#-citation)
-
----
-
 
 
 ---
