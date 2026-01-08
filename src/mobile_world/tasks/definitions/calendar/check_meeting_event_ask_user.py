@@ -17,6 +17,8 @@ class CheckMeetingEventAskUserTask(BaseTask):
     # Contact information from the provided image
     correct_recipient = "sam.smith@gmail.com"  # Sam Smith's email
     contact_name = "Sam Smith"
+    
+    today = "2025-10-16"
 
     app_names = {"Calendar", "Mail", "Contacts"}
 
