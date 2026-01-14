@@ -14,6 +14,7 @@ from mobile_world.agents.base import BaseAgent
 from mobile_world.agents.implementations.planner_executor import PlannerExecutorAgentMCP
 from mobile_world.agents.implementations.qwen3vl import Qwen3VLAgentMCP
 from mobile_world.agents.implementations.mai_ui_agent import MAIUINaivigationAgent
+from mobile_world.agents.implementations.general_e2e_agent import GeneralE2EAgentMCP
 
 AGENT_CONFIGS = {
     "qwen3vl": {
@@ -27,6 +28,15 @@ AGENT_CONFIGS = {
     },
     "mai_ui_agent": {
         "class": MAIUINaivigationAgent,
+    },
+    "general_e2e": {
+        "class": GeneralE2EAgentMCP,
+        "runtime_conf": {
+            "history_n_images": 3,
+            "temperature": 0.0,
+            "max_tokens": 2048,
+        },
+        "scale_factor": 1000,
     },
 }
 
@@ -149,5 +159,17 @@ def create_agent(
             llm_base_url=llm_base_url,
             tools=kwargs["env"].tools,
             api_key=api_key,
+            **kwargs,
+        )
+    elif agent_type == "general_e2e":
+        # Extract scale_factor from kwargs to avoid duplicate keyword argument
+        scale_factor = kwargs.pop("scale_factor", config.get("scale_factor", 1000))
+        return agent_class(
+            model_name=model_name,
+            llm_base_url=llm_base_url,
+            tools=kwargs["env"].tools,
+            api_key=api_key,
+            runtime_conf=config["runtime_conf"],
+            scale_factor=scale_factor,
             **kwargs,
         )

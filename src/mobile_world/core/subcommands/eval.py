@@ -125,6 +125,14 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Enable MCP server",
     )
+    parser.add_argument(
+        "--scale-factor",
+        "--scale_factor",
+        dest="scale_factor",
+        type=int,
+        default=1000,
+        help="Scale factor for coordinate conversion (default: 1000)",
+    )
 
 
 def configure_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -214,6 +222,7 @@ async def execute(args: argparse.Namespace) -> None:
         enable_mcp=args.enable_mcp,
         max_concurrency=args.max_concurrency,
         shuffle_tasks=args.shuffle_tasks,
+        scale_factor=getattr(args, "scale_factor", 1000),
     )
     if run_all_tasks and task_results:
         total_duration = time.time() - start_time

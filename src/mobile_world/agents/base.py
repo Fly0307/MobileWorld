@@ -69,6 +69,12 @@ class BaseAgent(ABC):
             try:
                 if "claude" in model:
                     kwargs["max_tokens"] = 64000
+                
+                # Handle GPT models that require max_completion_tokens instead of max_tokens
+                if "gpt" in model.lower() or "o1" in model.lower():
+                    if "max_tokens" in kwargs:
+                        kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+                
                 response = self.openai_client.chat.completions.create(
                     model=model,
                     messages=messages,
@@ -77,7 +83,16 @@ class BaseAgent(ABC):
                 self._log_openai_usage(response)
                 return response.choices[0].message.content.strip()
             except Exception as e:
+                error_msg = str(e)
                 logger.warning(f"Error calling OpenAI API: {e}")
+                
+                # Check if error is about max_tokens parameter and retry with max_completion_tokens
+                if "max_tokens" in error_msg and "max_completion_tokens" in error_msg:
+                    if "max_tokens" in kwargs:
+                        logger.info("Retrying with max_completion_tokens instead of max_tokens")
+                        kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+                        continue  # Retry immediately without decrementing retry_times
+                
                 retry_times -= 1
                 time.sleep(1)
         return None
