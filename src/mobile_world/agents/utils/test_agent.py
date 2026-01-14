@@ -95,14 +95,17 @@ def test_agent(
     # Create agent instance
     try:
         if agent_type in ["general_e2e"]:
+            # Extract parameters that we'll pass explicitly to avoid duplicates
+            tools = kwargs.pop("tools", [])
+            scale_factor = kwargs.pop("scale_factor", 1000)
             agent = AgentClass(
                 model_name=model_name,
                 llm_base_url=llm_base_url,
                 api_key=api_key,
                 observation_type="screenshot",
                 runtime_conf=runtime_conf,
-                tools=kwargs.get("tools", []),
-                scale_factor=kwargs.get("scale_factor", 1000),
+                tools=tools,
+                scale_factor=scale_factor,
                 **kwargs,
             )
         elif agent_type in ["planner_executor"]:
@@ -112,13 +115,15 @@ def test_agent(
                     "Planner-executor requires 'executor_agent_class'. "
                     "Add --executor_agent_class, --executor_model_name, --executor_llm_base_url"
                 )
+            # Extract tools to avoid duplicate
+            tools = kwargs.pop("tools", [])
             agent = AgentClass(
                 model_name=model_name,
                 llm_base_url=llm_base_url,
                 api_key=api_key,
                 observation_type="screenshot",
                 runtime_conf=runtime_conf,
-                tools=kwargs.get("tools", []),
+                tools=tools,
                 **kwargs,
             )
         elif agent_type in ["qwen3vl", "mai_ui_agent"]:
