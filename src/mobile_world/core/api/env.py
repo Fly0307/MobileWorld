@@ -395,6 +395,7 @@ def list_containers(
         backend_port = None
         viewer_port = None
         vnc_port = None
+        adb_port = None
 
         if ports_info:
             for port_mapping in ports_info.split(", "):
@@ -409,6 +410,8 @@ def list_containers(
                             viewer_port = host_port
                         elif container_port_num == "5800":
                             vnc_port = host_port
+                        elif container_port_num == "5556":
+                            adb_port = host_port
                     except ValueError:
                         pass
 
@@ -420,6 +423,7 @@ def list_containers(
                 backend_port=backend_port,
                 viewer_port=viewer_port,
                 vnc_port=vnc_port,
+                adb_port=adb_port,
             )
         )
 
