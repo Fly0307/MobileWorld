@@ -27,17 +27,14 @@
 ### 关键 API 端点
 
 ```
-POST http://localhost:6800/init          # 初始化 Agent/任务
-POST http://localhost:6800/step          # 执行一步操作
-POST http://localhost:6800/health        # 健康检查
-GET  http://localhost:6800/screenshot    # 获取当前截图
-POST http://localhost:6800/click         # 点击坐标
-POST http://localhost:6800/input_text    # 输入文本
-POST http://localhost:6800/key           # 按键事件
-POST http://localhost:6800/scroll        # 滚动操作
-POST http://localhost:6800/navigate_home # 返回主页
-POST http://localhost:6800/open_app      # 打开指定应用
-POST http://localhost:6800/done          # 标记任务完成
+GET  http://localhost:6800/health         # 健康检查
+POST http://localhost:6800/init           # 初始化设备控制器
+GET  http://localhost:6800/state          # 获取当前状态
+GET  http://localhost:6800/screenshot     # 获取截图 (需 device 参数)
+POST http://localhost:6800/step           # 执行动作 (click/input/navigate 等)
+GET  http://localhost:6800/task/list      # 获取任务列表
+POST http://localhost:6800/task/init      # 初始化任务并加载快照
+POST http://localhost:6800/task/tear_down # 清理任务状态
 ```
 
 ### 如何使用
@@ -53,21 +50,29 @@ sudo uv run mw eval --agent_type general_e2e ...
 # 健康检查
 curl http://localhost:6800/health
 
+# 初始化设备控制器
+curl -X POST http://localhost:6800/init \
+  -H "Content-Type: application/json" \
+  -d '{"device": "emulator-5554"}'
+
 # 获取截图
-curl http://localhost:6800/screenshot -o screen.png
+curl "http://localhost:6800/screenshot?device=emulator-5554&prefix=demo" \
+  -o screen.json
 
-# 点击坐标 (x=500, y=1000)
-curl -X POST http://localhost:6800/click \
+# 执行动作: 点击坐标 (x=500, y=1000)
+curl -X POST http://localhost:6800/step \
   -H "Content-Type: application/json" \
-  -d '{"x": 500, "y": 1000}'
+  -d '{"device": "emulator-5554", "action": {"action_type": "click", "x": 500, "y": 1000}}'
 
-# 输入文本
-curl -X POST http://localhost:6800/input_text \
+# 执行动作: 输入文本
+curl -X POST http://localhost:6800/step \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hello World"}'
+  -d '{"device": "emulator-5554", "action": {"action_type": "input_text", "text": "Hello World"}}'
 
-# 返回主页
-curl -X POST http://localhost:6800/navigate_home
+# 执行动作: 返回主页
+curl -X POST http://localhost:6800/step \
+  -H "Content-Type: application/json" \
+  -d '{"device": "emulator-5554", "action": {"action_type": "navigate_home"}}'
 ```
 
 **3. 通过 Python SDK**
@@ -75,17 +80,30 @@ curl -X POST http://localhost:6800/navigate_home
 import requests
 
 base_url = "http://localhost:6800"
+device = "emulator-5554"
+
+# 初始化设备
+requests.post(f"{base_url}/init", json={"device": device}).raise_for_status()
+
+# 获取状态
+state = requests.get(f"{base_url}/state", params={"device": device}).json()
+print(state)
 
 # 获取截图
-resp = requests.get(f"{base_url}/screenshot")
-with open("screen.png", "wb") as f:
-    f.write(resp.content)
+resp = requests.get(f"{base_url}/screenshot", params={"device": device, "prefix": "demo"})
+print(resp.json())
 
 # 执行点击
-requests.post(f"{base_url}/click", json={"x": 500, "y": 1000})
+requests.post(
+  f"{base_url}/step",
+  json={"device": device, "action": {"action_type": "click", "x": 500, "y": 1000}},
+).raise_for_status()
 
 # 初始化任务
-requests.post(f"{base_url}/init", json={"instruction": "Open Gmail and send an email"})
+requests.post(
+  f"{base_url}/task/init",
+  json={"task_name": "CountFileLinesTask", "req_device": device},
+).raise_for_status()
 ```
 
 ---
@@ -508,7 +526,7 @@ uv run python scripts/snapshot_manager.py load --all --base-url http://localhost
 
 **脚本工作原理:**
 1. 通过 `/task/list` 获取服务器端 TaskRegistry 中的全部任务
-2. 通过 `/task/metadata` 查询每个任务的 `snapshot_tag`
+2. 通过 `/task/metadata` 查询任务元信息 (如 tags/apps，部分版本不返回 `snapshot_tag`)
 3. 通过 `/task/init` 初始化任务 (内部自动调用 `controller.load_snapshot(task.snapshot_tag)`)
 4. 通过 `/task/tear_down` 卸载任务，清理残留状态
 5. 自动验证任务列表与快照的对应关系
@@ -530,18 +548,75 @@ curl -X POST http://localhost:6800/task/init \
   -d '{"task_name": "MattermostCreateChannel", "req_device": "emulator-5554"}'
 ```
 
-#### 方式 C: 手动通过 ADB 加载快照
+#### 方式 B-1: API 标准流程 (初始化/重置 -> 采集轨迹 -> 清理)
+
+适用于“每轮都从确定初始状态开始”的任务采集或回归测试。
+
+**推荐顺序：**
+
+1. `POST /init`：初始化设备控制器并检查设备健康状态。
+2. `GET /task/list`：获取可执行任务名。
+3. `POST /task/init`：按任务加载对应快照并进入任务初始环境。
+4. 执行采集/测试：使用adb操作，或者后端api操作通过 `POST /step`、`GET /state`、`GET /screenshot` 记录轨迹。
+5. `POST /task/tear_down`：清理当前任务状态。
+6. 下一任务或下一轮：重复步骤 3-5。
 
 ```bash
-# 通过 Backend API 加载快照
+#!/usr/bin/env bash
+set -euo pipefail
+
+API="http://localhost:6800"
+DEVICE="emulator-5554"
+TASK="CountFileLinesTask"
+
+echo "[1/5] init device"
+curl -sS -X POST "$API/init" \
+  -H "Content-Type: application/json" \
+  -d "{\"device\": \"$DEVICE\"}" | jq .
+
+echo "[2/5] optional: list tasks"
+curl -sS "$API/task/list" | jq '.[0:5]'
+
+echo "[3/5] reset to task snapshot"
+curl -sS -X POST "$API/task/init" \
+  -H "Content-Type: application/json" \
+  -d "{\"task_name\": \"$TASK\", \"req_device\": \"$DEVICE\"}" | jq .
+
+echo "[4/5] collect trajectory"
+curl -sS "$API/state?device=$DEVICE" | jq .
+curl -sS "$API/screenshot?device=$DEVICE&prefix=${TASK}_start" | jq .
+
+# 示例动作: 回到 Home
+curl -sS -X POST "$API/step" \
+  -H "Content-Type: application/json" \
+  -d "{\"device\": \"$DEVICE\", \"action\": {\"action_type\": \"navigate_home\"}}" | jq .
+
+curl -sS "$API/screenshot?device=$DEVICE&prefix=${TASK}_after_step" | jq .
+
+echo "[5/5] teardown"
+curl -sS -X POST "$API/task/tear_down" \
+  -H "Content-Type: application/json" \
+  -d "{\"task_name\": \"$TASK\", \"req_device\": \"$DEVICE\"}" | jq .
+```
+
+**双模拟器/多实例提示：**
+
+- 对 `mobile_world_env_0` 使用 `http://localhost:6800`。
+- 对 `mobile_world_env_1` 使用 `http://localhost:6801`。
+- 两个实例可并行执行同一流程，但每个实例都要先调用一次 `POST /init`。
+
+#### 方式 C: 先通过 API 初始化设备控制器
+
+```bash
+# 先通过 Backend API 初始化设备控制器
 curl -X POST http://localhost:6800/init \
   -H "Content-Type: application/json" \
-  -d '{"instruction": "your task instruction"}'
+  -d '{"device": "emulator-5554"}'
 
 # 任务初始化时会自动调用 load_snapshot
 ```
 
-#### 方式 C: 手动通过 ADB 加载快照
+#### 方式 D: 手动通过 ADB 加载快照
 
 ```bash
 # 查看可用快照
@@ -554,7 +629,7 @@ adb -s localhost:5556 emu avd snapshot load init_state
 sleep 3
 ```
 
-#### 方式 D: 通过 Python Controller
+#### 方式 E: 通过 Python Controller
 
 ---
 
@@ -670,10 +745,10 @@ adb connect localhost:5556
 │ 销毁容器              │ mw env rm mobile_world_env_0                     │
 │ 查看容器状态          │ mw env list                                      │
 │ 健康检查              │ curl http://localhost:6800/health                │
-│ 获取截图              │ curl http://localhost:6800/screenshot -o s.png   │
-│ 点击坐标              │ curl -X POST :6800/click -d '{"x":500,"y":1000}' │
-│ 输入文本              │ curl -X POST :6800/input_text -d '{"text":"hi"}' │
-│ 返回主页              │ curl -X POST :6800/navigate_home                 │
+│ 获取截图              │ curl "http://localhost:6800/screenshot?device=emulator-5554" │
+│ 点击坐标              │ curl -X POST :6800/step -d '{"device":"emulator-5554","action":{"action_type":"click","x":500,"y":1000}}' │
+│ 输入文本              │ curl -X POST :6800/step -d '{"device":"emulator-5554","action":{"action_type":"input_text","text":"hi"}}' │
+│ 返回主页              │ curl -X POST :6800/step -d '{"device":"emulator-5554","action":{"action_type":"navigate_home"}}' │
 │ ADB 连接              │ adb connect localhost:5556                       │
 │ ADB 点击              │ adb -s localhost:5556 shell input tap 500 1000   │
 │ ADB 截图              │ adb -s localhost:5556 shell screencap -p /sd.png │
@@ -747,7 +822,9 @@ adb connect localhost:5556
 adb shell input tap 500 1000
 
 # 或通过 API
-curl -X POST http://localhost:6800/click -d '{"x": 500, "y": 1000}'
+curl -X POST http://localhost:6800/step \
+  -H "Content-Type: application/json" \
+  -d '{"device": "emulator-5554", "action": {"action_type": "click", "x": 500, "y": 1000}}'
 ```
 
 ---

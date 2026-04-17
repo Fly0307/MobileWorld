@@ -41,7 +41,6 @@ MobileWorld 快照管理脚本
 """
 
 import argparse
-import json
 import sys
 import time
 from typing import Any
@@ -56,7 +55,7 @@ console = Console()
 # ──────────────────────────────────────────────────────────
 # 配置
 # ──────────────────────────────────────────────────────────
-DEFAULT_BASE_URL = "http://123.60.91.241:9000"
+DEFAULT_BASE_URL = "http://123.60.91.241:9001"
 DEFAULT_DEVICE = "emulator-5554"
 SNAPSHOT_LOAD_WAIT = 3  # 快照加载后等待秒数
 
@@ -110,6 +109,30 @@ class SnapshotManagerClient:
         """获取单个任务的详细信息。"""
         resp = self._get("/task/metadata", params={"task_name": task_name})
         return resp.json()
+
+    def get_task_info_with_fallback(self, task_meta: dict[str, Any]) -> dict[str, Any]:
+        """
+        获取任务详情并在 metadata 不可用时回退到 task/list 提供的信息。
+
+        当前部分后端版本的 /task/metadata 不返回 snapshot_tag，因此该方法会统一补齐字段。
+        """
+        name = task_meta.get("name", "N/A")
+        fallback = {
+            "name": name,
+            "tags": task_meta.get("tags", []),
+            "apps": task_meta.get("apps", []),
+            "snapshot_tag": None,
+        }
+        try:
+            info = self.get_task_info(name)
+            return {
+                "name": info.get("name", name),
+                "tags": info.get("tags", fallback["tags"]),
+                "apps": info.get("apps", fallback["apps"]),
+                "snapshot_tag": info.get("snapshot_tag"),
+            }
+        except Exception:
+            return fallback
 
     def init_task(self, task_name: str) -> bool:
         """
@@ -212,7 +235,8 @@ def cmd_list(client: SnapshotManagerClient, args: argparse.Namespace) -> None:
         console.print("[red]✗ 服务器不健康，请检查容器状态[/red]")
         sys.exit(1)
 
-    client.ensure_initialized()
+    if not client.ensure_initialized():
+        console.print("[yellow]! 设备初始化失败，仅尝试读取任务列表（可能无法执行 load）[/yellow]")
     task_list = client.get_task_list()
 
     # 过滤
@@ -233,16 +257,10 @@ def cmd_list(client: SnapshotManagerClient, args: argparse.Namespace) -> None:
 
     for idx, task in enumerate(task_list, 1):
         name = task.get("name", "N/A")
-        # 获取快照信息
-        try:
-            info = client.get_task_info(name)
-            snapshot_tag = info.get("snapshot_tag", "N/A")
-            apps = ", ".join(info.get("apps", []))
-            tags = ", ".join(info.get("tags", []))
-        except Exception:
-            snapshot_tag = "(获取失败)"
-            apps = "N/A"
-            tags = "N/A"
+        info = client.get_task_info_with_fallback(task)
+        snapshot_tag = info.get("snapshot_tag") or "(后端未提供)"
+        apps = ", ".join(info.get("apps", [])) or "N/A"
+        tags = ", ".join(info.get("tags", [])) or "N/A"
 
         table.add_row(str(idx), name, snapshot_tag, apps, tags)
 
@@ -251,18 +269,21 @@ def cmd_list(client: SnapshotManagerClient, args: argparse.Namespace) -> None:
     # 打印快照统计
     snapshot_tags = set()
     for task in task_list:
-        try:
-            info = client.get_task_info(task["name"])
-            st = info.get("snapshot_tag")
-            if st:
-                snapshot_tags.add(st)
-        except Exception:
-            pass
+        info = client.get_task_info_with_fallback(task)
+        st = info.get("snapshot_tag")
+        if st:
+            snapshot_tags.add(st)
+
+    snapshot_summary = (
+        f"使用 {len(snapshot_tags)} 个不同快照: {', '.join(sorted(snapshot_tags))}"
+        if snapshot_tags
+        else "后端 metadata 未提供 snapshot_tag，无法统计快照标签"
+    )
 
     console.print(
         Panel(
             f"[green]总计 {len(task_list)} 个任务[/green]\n"
-            f"[cyan]使用 {len(snapshot_tags)} 个不同快照: {', '.join(sorted(snapshot_tags))}[/cyan]",
+            f"[cyan]{snapshot_summary}[/cyan]",
             title="📊 统计",
             border_style="green",
         )
@@ -288,7 +309,9 @@ def cmd_load(client: SnapshotManagerClient, args: argparse.Namespace) -> None:
         console.print("[red]✗ 服务器不健康，请检查容器状态[/red]")
         sys.exit(1)
 
-    client.ensure_initialized()
+    if not client.ensure_initialized():
+        console.print("[red]✗ 设备初始化失败，无法执行快照加载[/red]")
+        sys.exit(1)
     task_list = client.get_task_list()
 
     # 过滤任务
@@ -334,12 +357,11 @@ def cmd_load(client: SnapshotManagerClient, args: argparse.Namespace) -> None:
         task_name = task_meta["name"]
         console.print(f"\n[{idx}/{len(tasks_to_load)}] [cyan]加载任务:[/cyan] {task_name}")
 
-        try:
-            info = client.get_task_info(task_name)
-            snapshot_tag = info.get("snapshot_tag", "unknown")
-            console.print(f"  快照标签: [yellow]{snapshot_tag}[/yellow]")
-        except Exception:
-            console.print(f"  快照标签: [red]获取失败[/red]")
+        info = client.get_task_info_with_fallback(task_meta)
+        snapshot_tag = info.get("snapshot_tag")
+        console.print(
+            f"  快照标签: [yellow]{snapshot_tag if snapshot_tag else '(后端未提供，仍可按任务初始化加载)'}[/yellow]"
+        )
 
         success = client.load_snapshot_via_task_init(task_name)
         if success:
@@ -387,7 +409,9 @@ def cmd_verify(client: SnapshotManagerClient, args: argparse.Namespace) -> None:
         console.print("[red]✗ 服务器不健康[/red]")
         sys.exit(1)
 
-    client.ensure_initialized()
+    if not client.ensure_initialized():
+        console.print("[red]✗ 设备初始化失败，无法验证任务与快照对应关系[/red]")
+        sys.exit(1)
     task_list = client.get_task_list()
 
     task_list = filter_tasks(
@@ -402,14 +426,11 @@ def cmd_verify(client: SnapshotManagerClient, args: argparse.Namespace) -> None:
     missing_snapshot = []
 
     for task in task_list:
-        try:
-            info = client.get_task_info(task["name"])
-            st = info.get("snapshot_tag")
-            if st:
-                snapshot_to_tasks.setdefault(st, []).append(task["name"])
-            else:
-                missing_snapshot.append(task["name"])
-        except Exception:
+        info = client.get_task_info_with_fallback(task)
+        st = info.get("snapshot_tag")
+        if st:
+            snapshot_to_tasks.setdefault(st, []).append(task["name"])
+        else:
             missing_snapshot.append(task["name"])
 
     table = Table(title="快照-任务对应关系", show_header=True, header_style="bold magenta")
